@@ -43,8 +43,7 @@ def main():
     while (datetime.now() - curr_time).seconds < 120:
         try:
             transaction = generate_sales_transaction()
-            transaction['totalAmount'] = round(transaction['productPrice'] * transaction['productQuantity']
-            
+            transaction['totalAmount'] = round(transaction['productPrice'] * transaction['productQuantity'], 2)
             print(f"Generated transaction: {transaction}")
 
             producer.produce(topic,
@@ -56,6 +55,7 @@ def main():
 
             # wait for 5 seconds before generating the next transaction
             time.sleep(5)
+
         except BufferError:
             print("Local producer queue is full, waiting for free space...")
             time.sleep(1)
