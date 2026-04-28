@@ -77,6 +77,21 @@ public class DataStreamJob {
                 connOptions
         )).name("Create Transactions Table Sink");
 
+        //create sales_per_category table sink
+        transactionStream.addSink(JdbcSink.sink(
+                "CREATE TABLE IF NOT EXISTS sales_per_category (" +
+                        "transaction_date DATE, " +
+                        "category VARCHAR(255), " +
+                        "total_sales DOUBLE PRECISION, " +
+                        "PRIMARY KEY (transaction_date, category)" +
+                        ")",
+                (JdbcStatementBuilder<Transaction>) (preparedStatement, transaction) -> {
+
+                },
+                execOptions,
+                connOptions
+        )).name("Create Sales Per Category Table");
+
         transactionStream.addSink(JdbcSink.sink(
                 "INSERT INTO transactions(transaction_id, product_id, product_name, product_category, product_price, " +
                         "product_quantity, product_brand, total_amount, currency, customer_id, transaction_date, payment_method) " +
@@ -111,6 +126,33 @@ public class DataStreamJob {
                 execOptions,
                 connOptions
         )).name("Insert into transactions table sink");
+
+        transactionStream.map(
+                        transaction -> {
+                            Date transactionDate = new Date(System.currentTimeMillis());
+                            String category = transaction.getProductCategory();
+                            double totalSales = transaction.getTotalAmount();
+                            return new SalesPerCategory(transactionDate, category, totalSales);
+                        }
+                ).keyBy(SalesPerCategory::getCategory)
+                .reduce((salesPerCategory, t1) -> {
+                    salesPerCategory.setTotalSales(salesPerCategory.getTotalSales() + t1.getTotalSales());
+                    return salesPerCategory;
+                }).addSink(JdbcSink.sink(
+                        "INSERT INTO sales_per_category(transaction_date, category, total_sales) " +
+                                "VALUES (?, ?, ?) " +
+                                "ON CONFLICT (transaction_date, category) DO UPDATE SET " +
+                                "total_sales = EXCLUDED.total_sales " +
+                                "WHERE sales_per_category.category = EXCLUDED.category " +
+                                "AND sales_per_category.transaction_date = EXCLUDED.transaction_date",
+                        (JdbcStatementBuilder<SalesPerCategory>) (preparedStatement, salesPerCategory) -> {
+                            preparedStatement.setDate(1, new Date(System.currentTimeMillis()));
+                            preparedStatement.setString(2, salesPerCategory.getCategory());
+                            preparedStatement.setDouble(3, salesPerCategory.getTotalSales());
+                        },
+                        execOptions,
+                        connOptions
+                )).name("Insert into sales per category table");
 
         env.execute("Flink API Skeleton");
     }
