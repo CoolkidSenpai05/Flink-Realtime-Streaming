@@ -60,7 +60,6 @@ This application processes e-commerce sales transactions in real-time to generat
 
 ```bash
 git clone https://github.com/CoolkidSenpai05/Flink-Realtime-Streaming.git
-cd flink-ecommerce
 ```
 
 ### 2. Start Infrastructure Services
