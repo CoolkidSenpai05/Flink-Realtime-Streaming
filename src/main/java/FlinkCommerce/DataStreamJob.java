@@ -23,6 +23,8 @@ import org.apache.flink.connector.jdbc.JdbcSink;
 
 import java.sql.Date;
 
+import static utils.JsonUtil.convertTransactionToJson;
+
 public class DataStreamJob {
     public static void main(String[] args) throws Exception {
         final StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
@@ -233,6 +235,22 @@ public class DataStreamJob {
                         execOptions,
                         connOptions
                 )).name("Insert into sales per month table");
+
+        transactionStream.sinkTo(
+                new Elasticsearch7SinkBuilder<Transaction>()
+                        .setHosts(new HttpHost("localhost", 9200, "http"))
+                        .setEmitter((transaction, runtimeContext, requestIndexer) -> {
+
+                            String json = convertTransactionToJson(transaction);
+
+                            IndexRequest indexRequest = Requests.indexRequest()
+                                    .index("transactions")
+                                    .id(transaction.getTransactionId())
+                                    .source(json, XContentType.JSON);
+                            requestIndexer.add(indexRequest);
+                        })
+                        .build()
+        ).name("Elasticsearch Sink");
 
         env.execute("Flink Ecommerce Realtime Streaming");
     }
