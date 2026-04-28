@@ -92,6 +92,34 @@ public class DataStreamJob {
                 connOptions
         )).name("Create Sales Per Category Table");
 
+        //create sales_per_day table sink
+        transactionStream.addSink(JdbcSink.sink(
+                "CREATE TABLE IF NOT EXISTS sales_per_day (" +
+                        "transaction_date DATE PRIMARY KEY, " +
+                        "total_sales DOUBLE PRECISION " +
+                        ")",
+                (JdbcStatementBuilder<Transaction>) (preparedStatement, transaction) -> {
+
+                },
+                execOptions,
+                connOptions
+        )).name("Create Sales Per Day Table");
+
+        //create sales_per_month table sink
+        transactionStream.addSink(JdbcSink.sink(
+                "CREATE TABLE IF NOT EXISTS sales_per_month (" +
+                        "year INTEGER, " +
+                        "month INTEGER, " +
+                        "total_sales DOUBLE PRECISION, " +
+                        "PRIMARY KEY (year, month)" +
+                        ")",
+                (JdbcStatementBuilder<Transaction>) (preparedStatement, transaction) -> {
+
+                },
+                execOptions,
+                connOptions
+        )).name("Create Sales Per Month Table");
+
         transactionStream.addSink(JdbcSink.sink(
                 "INSERT INTO transactions(transaction_id, product_id, product_name, product_category, product_price, " +
                         "product_quantity, product_brand, total_amount, currency, customer_id, transaction_date, payment_method) " +
@@ -154,6 +182,58 @@ public class DataStreamJob {
                         connOptions
                 )).name("Insert into sales per category table");
 
-        env.execute("Flink API Skeleton");
+        transactionStream.map(
+                        transaction -> {
+                            Date transactionDate = new Date(System.currentTimeMillis());
+                            double totalSales = transaction.getTotalAmount();
+                            return new SalesPerDay(transactionDate, totalSales);
+                        }
+                ).keyBy(SalesPerDay::getTransactionDate)
+                .reduce((salesPerDay, t1) -> {
+                    salesPerDay.setTotalSales(salesPerDay.getTotalSales() + t1.getTotalSales());
+                    return salesPerDay;
+                }).addSink(JdbcSink.sink(
+                        "INSERT INTO sales_per_day(transaction_date, total_sales) " +
+                                "VALUES (?,?) " +
+                                "ON CONFLICT (transaction_date) DO UPDATE SET " +
+                                "total_sales = EXCLUDED.total_sales " +
+                                "WHERE sales_per_day.transaction_date = EXCLUDED.transaction_date",
+                        (JdbcStatementBuilder<SalesPerDay>) (preparedStatement, salesPerDay) -> {
+                            preparedStatement.setDate(1, new Date(System.currentTimeMillis()));
+                            preparedStatement.setDouble(2, salesPerDay.getTotalSales());
+                        },
+                        execOptions,
+                        connOptions
+                )).name("Insert into sales per day table");
+
+        transactionStream.map(
+                        transaction -> {
+                            Date transactionDate = new Date(System.currentTimeMillis());
+                            int year = transactionDate.toLocalDate().getYear();
+                            int month = transactionDate.toLocalDate().getMonth().getValue();
+                            double totalSales = transaction.getTotalAmount();
+                            return new SalesPerMonth(year, month, totalSales);
+                        }
+                ).keyBy(SalesPerMonth::getMonth)
+                .reduce((salesPerMonth, t1) -> {
+                    salesPerMonth.setTotalSales(salesPerMonth.getTotalSales() + t1.getTotalSales());
+                    return salesPerMonth;
+                }).addSink(JdbcSink.sink(
+                        "INSERT INTO sales_per_month(year, month, total_sales) " +
+                                "VALUES (?,?,?) " +
+                                "ON CONFLICT (year, month) DO UPDATE SET " +
+                                "total_sales = EXCLUDED.total_sales " +
+                                "WHERE sales_per_month.year = EXCLUDED.year " +
+                                "AND sales_per_month.month = EXCLUDED.month ",
+                        (JdbcStatementBuilder<SalesPerMonth>) (preparedStatement, salesPerMonth) -> {
+                            preparedStatement.setInt(1, salesPerMonth.getYear());
+                            preparedStatement.setInt(2, salesPerMonth.getMonth());
+                            preparedStatement.setDouble(3, salesPerMonth.getTotalSales());
+                        },
+                        execOptions,
+                        connOptions
+                )).name("Insert into sales per month table");
+
+        env.execute("Flink Ecommerce Realtime Streaming");
     }
 }
